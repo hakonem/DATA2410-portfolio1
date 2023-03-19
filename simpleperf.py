@@ -56,7 +56,7 @@ def handleClient(connectionSocket):
         #EXCEPTION HANDLING
         except IOError:
             connectionSocket.send('error!'.encode())    
-            connectionSocket.close()                                            #close client socket once message sent
+            connectionSocket.close()                         #close client socket once message sent
             print('thread closed')
             break                                           #prevents closing server socket while other clients are still connected
 
