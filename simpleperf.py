@@ -8,17 +8,16 @@ import _thread as thread
 #create argparse object with program description
 parser = argparse.ArgumentParser(description='Run simpleperf network performance tool')
 #arguments with help text
-parser.add_argument('-s', '--server', help='To choose server mode', action='store_true')
-parser.add_argument('-b', '--bind', help='Enter IP address', type=str, default='127.0.0.1')
-parser.add_argument('-p', '--port', help='Enter port number', type=int, default=8088)
-parser.add_argument('-f', '--format', help='Specify format for summary of results', type=str, choices=('B', 'KB', 'MB'), default='MB')
-parser.add_argument('-c', '--client', help='To choose client mode', action='store_true')
-parser.add_argument('-I', '--serverip', help='Enter the IP address of ther server', type=str, default='127.0.0.1')
-parser.add_argument('-t', '--time', help='Enter the total duration in seconds for which data should be generated', type=int, default=25)
-parser.add_argument('-i', '--interval', help='Enter interval in which to display statistics', type=int)
+parser.add_argument('-s', '--server', help='Runs tool in server mode', action='store_true')
+parser.add_argument('-b', '--bind', help='Enter server IP address', type=str, default='127.0.0.1')
+parser.add_argument('-p', '--port', help='Enter server port number', type=int, default=8088)
+parser.add_argument('-f', '--format', help='Specify which format to display results in', type=str, choices=('B', 'KB', 'MB'), default='MB')
+parser.add_argument('-c', '--client', help='Runs tool in client mode', action='store_true')
+parser.add_argument('-I', '--serverip', help='Enter server IP address', type=str, default='127.0.0.1')
+parser.add_argument('-t', '--time', help='Enter the total duration in seconds for which data should be generated and sent', type=int, default=25)
+parser.add_argument('-i', '--interval', help='Print statistics per <z> seconds', type=int)
 parser.add_argument('-P', '--parallel', help='Enter number of parallel connections', type=int, default=1)
-parser.add_argument('-n', '--num', help='Enter number of bytes to transfer', type=str, choices=('B', 'KB', 'MB'))
-
+parser.add_argument('-n', '--num', help='Enter number of bytes to transfer', type=str) #NB must be B, KB or MB
 
 #run the parser
 args = parser.parse_args()
@@ -40,6 +39,32 @@ def validate_ip(ip_string):
     except ValueError:
         print('Error:',ip_string,'is not a valid IPv4 address')
         sys.exit()
+
+def print_msg(msg):
+    print('-'*len(msg))
+    print(msg)
+    print('-'*len(msg))
+
+
+def show_results(packets, timer):
+
+    if args.format == 'MB':
+        X = packets/1000
+        Y = X/(timer)*8
+    elif args.format == 'KB':
+        X = packets
+        Y = X/(timer)*8e-3
+    else:
+        X = packets*1000
+        Y = packets*8e-6
+
+    results = [
+        ['ID', 'Interval', 'Received', 'Rate'],
+        [f'{args.bind}:{str(args.port)}', '0.0 - ' + "{:.1f}".format(timer), f'{X} {args.format}', "{:.2f}".format(Y) + ' Mbps']
+    ]
+    for row in results:
+        print('\n')
+        print("{: >20} {: >20} {: >20} {: >20}".format(*row))
 
 
 #CLIENT HANDLER FUNCTION
@@ -69,7 +94,7 @@ def main():
         sys.exit('Error: you must run either in server or client mode')
     elif args.server:
         check_port(args.port)
-        validate_ip(args.bind)
+        validate_ip(args.bind) 
         serverSocket = socket(AF_INET, SOCK_STREAM)             #prepare a TCP (SOCK_STREAM) server socket using IPv4 (AF_INET)
         try:
             serverSocket.bind((args.bind, args.port))                       
@@ -77,31 +102,29 @@ def main():
         except:
             print('Bind failed. Error: ')                       #print error message and terminate program if socket binding fails 
             sys.exit()
-        
         serverSocket.listen(args.parallel)                                 #listen for incoming connection requests to socket (specified number)
-        print('-'*46)
-        print('A simpleperf server is listening on port',args.port)                              #print message when socket ready to receive
-        print('-'*46)
+        print_msg(f'A simpleperf server is listening on port {args.port}')                              #print message when socket ready to receive
+   
         
         while True:
             connectionSocket,addr = serverSocket.accept()       #accept connection request from client and create new connection socket with info about the client (addr)
-            print('-'*80)
-            print('A simpleperf client with',addr,'is connected with',args.bind,':',args.port)                  #client info printed to screen server side
-            print('-'*80)
-            
+            print_msg(f'A simpleperf client with {addr} is connected with {args.bind}:{args.port}')                  #client info printed to screen server side
+            packets_recd = 0
+
             while connectionSocket:
                 data = ''
-                packet = connectionSocket.recv(4096).decode()
+                packet = connectionSocket.recv(2048).decode()
+                packets_recd+=1
                 data += packet
                 chunks = [data[i:i+1000] for i in range(0, len(data), 1000)]
-                print(chunks)
+                print(chunks) 
 
                 if 'BYE' in packet:
-                    print('client finished')
+                    print(f'client finished: number of packets recd: {packets_recd}')
                     connectionSocket.send('ACK: BYE'.encode())
-                    
                     break
-      
+            show_results(packets_recd, args.time) 
+                          
             #thread.start_new_thread(handleClient,(connectionSocket,))       #start new thread and return its identifier
             #print('new thread started')
         serverSocket.close()                                    #close server socket
@@ -110,24 +133,21 @@ def main():
     else:
         clientSocket = socket(AF_INET, SOCK_STREAM)        #prepare a TCP (SOCK_STREAM) client socket using IPv4 (AF_INET)
         clientSocket.connect((args.bind,args.port))          #connect client socket to specified server ip/port and initiate three-way handshake
-        print('-'*70)
-        print('A simpleperf client Client connecting to server',args.bind,', port',args.port)                  #client info printed to screen server side
-        print('-'*70)
-        
-              
+        print_msg(f'A simpleperf client Client connecting to server {args.bind}, port {args.port}')                  #client info printed to screen server side        
+             
         while True:
             chunk = '0'*1000
-        
-            duration = time.time() + args.time
+            packets_sent = 0
+            start_time = time.time()
+            duration = start_time + args.time
             
             while time.time() < duration:
                 clientSocket.send(chunk.encode())
-                
-            print('finished')
+                packets_sent+=1
+            print(f'finished - number of packets sent: {packets_sent}')
             clientSocket.send('BYE'.encode())
             print(clientSocket.recv(64).decode()) 
-            
-
+ 
         clientSocket.close()                               #close client socket 
 
 
