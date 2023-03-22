@@ -46,21 +46,21 @@ def print_msg(msg):
     print('-'*len(msg))
 
 
-def show_results(packets, timer):
+def show_results(bytes, sec):
 
     if args.format == 'MB':
-        X = packets/1000
-        Y = X/(timer)*8
+        X = bytes/1e6
+        Y = X/sec*8
     elif args.format == 'KB':
-        X = packets
-        Y = X/(timer)*8e-3
+        X = bytes/1e3
+        Y = X/sec*8e-3
     else:
-        X = packets*1000
-        Y = packets*8e-6
+        X = bytes
+        Y = bytes*8e-6
 
     results = [
         ['ID', 'Interval', 'Received', 'Rate'],
-        [f'{args.bind}:{str(args.port)}', '0.0 - ' + "{:.1f}".format(timer), f'{X} {args.format}', "{:.2f}".format(Y) + ' Mbps']
+        [f'{args.bind}:{str(args.port)}', '0.0 - ' + "{:.1f}".format(sec), f'{X} {args.format}', "{:.2f}".format(Y) + ' Mbps']
     ]
     for row in results:
         print('\n')
@@ -109,22 +109,20 @@ def main():
         while True:
             connectionSocket,addr = serverSocket.accept()       #accept connection request from client and create new connection socket with info about the client (addr)
             print_msg(f'A simpleperf client with {addr} is connected with {args.bind}:{args.port}')                  #client info printed to screen server side
-            packets_recd = 0
-
+            data = bytearray()
+            packet = connectionSocket.recv(1024)
             while connectionSocket:
-                data = ''
-                packet = connectionSocket.recv(2048).decode()
-                packets_recd+=1
-                data += packet
-                chunks = [data[i:i+1000] for i in range(0, len(data), 1000)]
-                print(chunks) 
-
-                if 'BYE' in packet:
-                    print(f'client finished: number of packets recd: {packets_recd}')
+                data.extend(packet)
+                packet = connectionSocket.recv(1024)
+                
+                if b'BYE' in packet:
+                    print(f'client finished: number of bytes recd: {len(data)}')
                     connectionSocket.send('ACK: BYE'.encode())
                     break
-            show_results(packets_recd, args.time) 
-                          
+    
+            show_results(len(data), args.time) 
+            break
+        connectionSocket.close()              
             #thread.start_new_thread(handleClient,(connectionSocket,))       #start new thread and return its identifier
             #print('new thread started')
         serverSocket.close()                                    #close server socket
@@ -147,9 +145,9 @@ def main():
             print(f'finished - number of packets sent: {packets_sent}')
             clientSocket.send('BYE'.encode())
             print(clientSocket.recv(64).decode()) 
- 
+            break
         clientSocket.close()                               #close client socket 
-
+        sys.exit('closing program')
 
                 
 if __name__ == '__main__':
