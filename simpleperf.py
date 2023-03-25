@@ -31,7 +31,6 @@ def check_port(portNr):
         print('Error: port number must be 1024-65535')
         sys.exit()
 
-
 def validate_ip(ip_string):
     try:
         ip = ipaddress.IPv4Address(ip_string)
@@ -44,7 +43,7 @@ def print_msg(msg):
     print(msg)
     print('-'*len(msg))
 
-def show_results(bytes, sec, addr):
+def show_results(bytes, sec, addr, interval):
 
     if args.format == 'MB':
         X = bytes/1e6
@@ -58,7 +57,7 @@ def show_results(bytes, sec, addr):
 
     results = [
         ['ID', 'Interval', 'Received', 'Rate'],
-        [f'{addr[0]}:{addr[1]}', '0.0 - ' + "{:.1f}".format(sec), f'{round(X)} {args.format}', "{:.2f}".format(Y) + ' Mbps']
+        [f'{addr[0]}:{addr[1]}', f'0.0 - {interval:.1f}', f'{round(X)} {args.format}', f'{Y:.2f} Mbps']
     ]
     for row in results:
         print('\n')
@@ -108,6 +107,7 @@ def main():
         while True:
             connectionSocket,addr = serverSocket.accept()       #accept connection request from client and create new connection socket with info about the client (addr)
             print_msg(f'A simpleperf client with {addr[0]}:{addr[1]} is connected with {args.bind}:{args.port}')                  #client info printed to screen server side
+            interval = float(connectionSocket.recv(64).decode())
             data = bytearray()
             packet = connectionSocket.recv(1000)
             while connectionSocket:
@@ -117,8 +117,9 @@ def main():
                     print(f'client finished: number of bytes recd: {len(data)}')
                     connectionSocket.send('ACK: BYE'.encode())
                     elapsed = float(connectionSocket.recv(64).decode())
+                    print(elapsed)
                     break         
-            show_results(len(data), elapsed, addr) 
+            show_results(len(data), elapsed, addr, interval) 
             break
         connectionSocket.close()              
             #thread.start_new_thread(handleClient,(connectionSocket,))       #start new thread and return its identifier
@@ -127,16 +128,19 @@ def main():
         sys.exit()                                              #terminate the program after sending the corresponding data
 
     else:
+        if args.serverip != args.bind:
+            print('IP address given must match server IP address')
+            sys.exit()
         clientSocket = socket(AF_INET, SOCK_STREAM)        #prepare a TCP (SOCK_STREAM) client socket using IPv4 (AF_INET)
         clientSocket.connect((args.bind,args.port))          #connect client socket to specified server ip/port and initiate three-way handshake
-        print_msg(f'A simpleperf client Client connecting to server {args.bind}, port {args.port}')                  #client info printed to screen server side        
-             
+        print_msg(f'A simpleperf client connecting to server {args.bind}, port {args.port}')                  #client info printed to screen server side        
+        interval = float(args.time)
+        clientSocket.send(str(interval).encode())
         while True:
             chunk = '0'*1000
             chunks_sent = 0
             start_time = time.time()
-            send_duration = start_time + args.time
-            
+            send_duration = start_time + interval
             while time.time() < send_duration:
                 clientSocket.send(chunk.encode())
                 chunks_sent+=1
