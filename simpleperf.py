@@ -43,21 +43,21 @@ def print_msg(msg):
     print(msg)
     print('-'*len(msg))
 
-def show_results(bytes, sec, addr, interval):
+def show_results(bytes, duration, ip, port, interval):
 
     if args.format == 'MB':
         X = bytes/1e6
-        Y = (bytes/sec)*8e-6
+        Y = (bytes/duration)*8e-6
     elif args.format == 'KB':
         X = bytes/1e3
-        Y = (bytes/sec)*8e-6
+        Y = (bytes/duration)*8e-6
     else:
         X = bytes
-        Y = (bytes/sec)*8e-6
+        Y = (bytes/duration)*8e-6
 
     results = [
         ['ID', 'Interval', 'Received', 'Rate'],
-        [f'{addr[0]}:{addr[1]}', f'0.0 - {interval:.1f}', f'{round(X)} {args.format}', f'{Y:.2f} Mbps']
+        [f'{ip}:{port}', f'0.0 - {interval:.1f}', f'{round(X)} {args.format}', f'{Y:.2f} Mbps']
     ]
     for row in results:
         print('\n')
@@ -85,11 +85,13 @@ def handleClient(connectionSocket):
 
 
 #MAIN FUNCTION
-
 def main():
 
+    #ERROR HANDLING IF NEITHER/BOTH MODES SELECTED
     if (not args.client and not args.server) or (args.client and args.server):
-        sys.exit('Error: you must run either in server or client mode')
+        sys.exit('Error: Simpleperf must run either in server or client mode')
+    
+    #SERVER MODE
     elif args.server:
         check_port(args.port)
         validate_ip(args.bind) 
@@ -107,19 +109,27 @@ def main():
         while True:
             connectionSocket,addr = serverSocket.accept()       #accept connection request from client and create new connection socket with info about the client (addr)
             print_msg(f'A simpleperf client with {addr[0]}:{addr[1]} is connected with {args.bind}:{args.port}')                  #client info printed to screen server side
-            interval = float(connectionSocket.recv(64).decode())
-            data = bytearray()
-            packet = connectionSocket.recv(1000)
-            while connectionSocket:
-                data.extend(packet)
-                packet = connectionSocket.recv(1000)
-                if b'BYE' in packet:
-                    print(f'client finished: number of bytes recd: {len(data)}')
-                    connectionSocket.send('ACK: BYE'.encode())
-                    elapsed = float(connectionSocket.recv(64).decode())
-                    print(elapsed)
+            data = bytearray()                                      #initialise an empty byte array
+            interval = int(connectionSocket.recv(64).decode('utf-8'))   #recv value in -t from client
+            #print(interval)
+            start_time = float(connectionSocket.recv(128).decode('utf-8'))  #recv start time from client
+            print(start_time)
+            #print(start_time.rstrip('\x00'))
+            #packet = connectionSocket.recv(1000)
+            while connectionSocket:                         #while the client is connected
+                packet = connectionSocket.recv(1000)        #recv packets of data from client
+                data.extend(packet)                         #add the data in the packets to byte array
+                
+                if b'BYE' in packet:                        #when the server recvs BYE message from client:
+                    stop_time = time.time()                     #stop timer when BYE recvd
+                    #print(stop_time)
+                    print(f'client finished: number of bytes recd: {len(data)-3}')    #CAN DELETE AFTER: print number bytes recvd
+                    server_duration = stop_time - start_time
+                    connectionSocket.send('ACK: BYE'.encode())          #server sends ACK to client
+                    #elapsed = float(connectionSocket.recv(64).decode())
+                    #print(elapsed)
                     break         
-            show_results(len(data), elapsed, addr, interval) 
+            show_results(len(data), server_duration, addr[0], addr[1], interval) 
             break
         connectionSocket.close()              
             #thread.start_new_thread(handleClient,(connectionSocket,))       #start new thread and return its identifier
@@ -127,31 +137,38 @@ def main():
         serverSocket.close()                                    #close server socket
         sys.exit()                                              #terminate the program after sending the corresponding data
 
+    #CLIENT MODE
     else:
+        print_msg(f'A simpleperf client connecting to server {args.serverip}, port {args.port}') 
         if args.serverip != args.bind:
             print('IP address given must match server IP address')
             sys.exit()
         clientSocket = socket(AF_INET, SOCK_STREAM)        #prepare a TCP (SOCK_STREAM) client socket using IPv4 (AF_INET)
         clientSocket.connect((args.bind,args.port))          #connect client socket to specified server ip/port and initiate three-way handshake
-        print_msg(f'A simpleperf client connecting to server {args.bind}, port {args.port}')                  #client info printed to screen server side        
-        interval = float(args.time)
-        clientSocket.send(str(interval).encode())
-        while True:
-            chunk = '0'*1000
-            chunks_sent = 0
-            start_time = time.time()
-            send_duration = start_time + interval
-            while time.time() < send_duration:
-                clientSocket.send(chunk.encode())
-                chunks_sent+=1
-            print(f'finished - number of bytes sent: {chunks_sent * 1000}')
-            clientSocket.send('BYE'.encode())
-            print(clientSocket.recv(64).decode())
-            stop_time = time.time()
-            elapsed = round(stop_time - start_time, 1)
-            clientSocket.send(str(elapsed).encode())
-            break
+        print_msg(f'Client connected with server {args.serverip}, port {args.port}')                  #client info printed to screen server side        
+        interval = args.time
+        clientSocket.send(str(interval).encode('utf-8'))
 
+        while True:
+            #chunk = '0'*1000                                #define a chunk of data: 1000 bytes
+            #chunks_sent = 0                                 #initialise chunk counter
+            chunk = bytes(1000) 
+            bytes_sent = bytearray()
+            start_time = time.time()                        #set timer to start now
+            clientSocket.send(str(start_time).encode('utf-8'))     #send start time to server
+            send_time = start_time + args.time              #send data for time specified with -t flag
+            while time.time() < send_time:                  #for the specified length of time:
+                clientSocket.send(chunk)           #send a chunk of data
+                bytes_sent.extend(chunk)
+                #chunks_sent+=1                              #increase chunk counter by 1
+            print(f'finished - number of bytes sent: {len(bytes_sent)}')     #CAN DELETE AFTER: print number bytes sent
+            clientSocket.send('BYE'.encode())           #finished sending data - send BYE message to server
+            print(clientSocket.recv(64).decode())       #recv ACK from server
+            stop_time = time.time()                     #stop timer when ACK recvd
+            client_duration = stop_time - start_time
+            #clientSocket.send(str(elapsed).encode())
+            break
+        show_results(len(bytes_sent), client_duration, args.serverip, args.port, interval) 
         clientSocket.close()                               #close client socket 
         sys.exit('closing program')
 
