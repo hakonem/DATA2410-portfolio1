@@ -28,7 +28,7 @@ def check_port(portNr):
         if portNr not in port_range:
             raise ValueError(portNr)
     except ValueError:
-        print('Error: port number must be 1024-65535')
+        print('Error: port number must be in range 1024-65535')
         sys.exit()
 
 def validate_ip(ip_string):
@@ -67,7 +67,7 @@ def show_results(bytes, duration, ip, port, interval):
 
 #CLIENT HANDLER FUNCTION
 #manages communication between each newly created connection socket and the server
-def handleClient(connectionSocket):                         
+def handleClient(connectionSocket, addr):                         
     while True:
         try:
             message = connectionSocket.recv(1024)           
@@ -110,24 +110,21 @@ def main():
             connectionSocket,addr = serverSocket.accept()       #accept connection request from client and create new connection socket with info about the client (addr)
             print_msg(f'A simpleperf client with {addr[0]}:{addr[1]} is connected with {args.bind}:{args.port}')                  #client info printed to screen server side
             data = bytearray()                                      #initialise an empty byte array
-            interval = int(connectionSocket.recv(64).decode('utf-8'))   #recv value in -t from client
-            #print(interval)
+            try:
+                interval = int(connectionSocket.recv(64).decode('utf-8'))   #recv value in -t from client
+            except ValueError:
+                print('Error in conversion of data received over the socket- try again')
+                sys.exit()
             start_time = float(connectionSocket.recv(128).decode('utf-8'))  #recv start time from client
-            print(start_time)
-            #print(start_time.rstrip('\x00'))
-            #packet = connectionSocket.recv(1000)
             while connectionSocket:                         #while the client is connected
                 packet = connectionSocket.recv(1000)        #recv packets of data from client
                 data.extend(packet)                         #add the data in the packets to byte array
                 
                 if b'BYE' in packet:                        #when the server recvs BYE message from client:
                     stop_time = time.time()                     #stop timer when BYE recvd
-                    #print(stop_time)
                     print(f'client finished: number of bytes recd: {len(data)-3}')    #CAN DELETE AFTER: print number bytes recvd
                     server_duration = stop_time - start_time
                     connectionSocket.send('ACK: BYE'.encode())          #server sends ACK to client
-                    #elapsed = float(connectionSocket.recv(64).decode())
-                    #print(elapsed)
                     break         
             show_results(len(data), server_duration, addr[0], addr[1], interval) 
             break
@@ -150,8 +147,6 @@ def main():
         clientSocket.send(str(interval).encode('utf-8'))
 
         while True:
-            #chunk = '0'*1000                                #define a chunk of data: 1000 bytes
-            #chunks_sent = 0                                 #initialise chunk counter
             chunk = bytes(1000) 
             bytes_sent = bytearray()
             start_time = time.time()                        #set timer to start now
@@ -160,17 +155,15 @@ def main():
             while time.time() < send_time:                  #for the specified length of time:
                 clientSocket.send(chunk)           #send a chunk of data
                 bytes_sent.extend(chunk)
-                #chunks_sent+=1                              #increase chunk counter by 1
             print(f'finished - number of bytes sent: {len(bytes_sent)}')     #CAN DELETE AFTER: print number bytes sent
             clientSocket.send('BYE'.encode())           #finished sending data - send BYE message to server
             print(clientSocket.recv(64).decode())       #recv ACK from server
             stop_time = time.time()                     #stop timer when ACK recvd
             client_duration = stop_time - start_time
-            #clientSocket.send(str(elapsed).encode())
             break
         show_results(len(bytes_sent), client_duration, args.serverip, args.port, interval) 
         clientSocket.close()                               #close client socket 
-        sys.exit('closing program')
+        sys.exit()
 
                 
 if __name__ == '__main__':
