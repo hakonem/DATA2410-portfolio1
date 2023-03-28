@@ -3,6 +3,7 @@ import sys
 import ipaddress
 from socket import *
 import time 
+import re
 import _thread as thread
 
 #create argparse object with program description
@@ -43,8 +44,26 @@ def print_msg(msg):
     print(msg)
     print('-'*len(msg))
 
-def show_results(bytes, duration, ip, port, interval):
 
+def generate_table():
+    if args.server:
+        return [
+            ['ID', 'Interval', 'Received', 'Rate']
+        ]
+
+    else:
+        return [
+            ['ID', 'Interval', 'Transfer', 'Bandwidth']
+        ]
+    
+
+def display_results(table):
+    print('\n')
+    for row in table:
+        print("{: >20} {: >20} {: >20} {: >20}".format(*row))
+    
+
+def generate_row(bytes, duration, ip, port, interval, table):
     if args.format == 'MB':
         X = bytes/1e6
         Y = (bytes/duration)*8e-6
@@ -55,33 +74,30 @@ def show_results(bytes, duration, ip, port, interval):
         X = bytes
         Y = (bytes/duration)*8e-6
 
-    results = [
-        ['ID', 'Interval', 'Received', 'Rate'],
+    table.append(
         [f'{ip}:{port}', f'0.0 - {interval:.1f}', f'{round(X)} {args.format}', f'{Y:.2f} Mbps']
-    ]
-    for row in results:
-        print('\n')
-        print("{: >20} {: >20} {: >20} {: >20}".format(*row))
-        
+    )
+ 
 
+def get_bytes_to_send(num):
+    num_split = re.split('\d+', num)
+    if num_split[2] == 'MB':
+        return(int(num_split[1])*int(1e6))
+    elif num_split[2] == 'KB':
+        return(int(num_split[1])*int(1e3))
+    else:
+        return(int(num_split[1]))
+    
+"""
+def get_client_start_time(info):
+    info_split = info.split()
+    return info_split[0]
+  
+def get_client_interval(info):
+    info_split = info.split()
+    return info_split[1]
 
-#CLIENT HANDLER FUNCTION
-#manages communication between each newly created connection socket and the server
-def handleClient(connectionSocket, addr):                         
-    while True:
-        try:
-            message = connectionSocket.recv(1024)           
-            data = message.decode()
-            connectionSocket.send(data.upper().encode())       
-            print('thread closed')
-            break                                           #prevents server socket from closing while other clients are still connected
-
-        #EXCEPTION HANDLING
-        except IOError:
-            connectionSocket.send('error!'.encode())    
-            connectionSocket.close()                         #close client socket once message sent
-            print('thread closed')
-            break                                           #prevents closing server socket while other clients are still connected
+"""
 
 
 #MAIN FUNCTION
@@ -89,7 +105,7 @@ def main():
 
     #ERROR HANDLING IF NEITHER/BOTH MODES SELECTED
     if (not args.client and not args.server) or (args.client and args.server):
-        sys.exit('Error: Simpleperf must run either in server or client mode')
+        sys.exit('Error: Simpleperf must run EITHER in server or client mode')
     
     #SERVER MODE
     elif args.server:
@@ -108,14 +124,16 @@ def main():
         
         while True:
             connectionSocket,addr = serverSocket.accept()       #accept connection request from client and create new connection socket with info about the client (addr)
-            print_msg(f'A simpleperf client with {addr[0]}:{addr[1]} is connected with {args.bind}:{args.port}')                  #client info printed to screen server side
+            print(f'A simpleperf client with {addr[0]}:{addr[1]} is connected with {args.bind}:{args.port}')                  #client info printed to screen server side
             data = bytearray()                                      #initialise an empty byte array
+            
             try:
-                interval = int(connectionSocket.recv(64).decode('utf-8'))   #recv value in -t from client
+                duration = float(connectionSocket.recv(64).decode('utf-8'))   #recv value in -t from client
+                start_time = float(connectionSocket.recv(512).decode('utf-8'))  #recv start time from client
             except ValueError:
-                print('Error in conversion of data received over the socket- try again')
+                print('Decoding failed. Error:')
                 sys.exit()
-            start_time = float(connectionSocket.recv(128).decode('utf-8'))  #recv start time from client
+
             while connectionSocket:                         #while the client is connected
                 packet = connectionSocket.recv(1000)        #recv packets of data from client
                 data.extend(packet)                         #add the data in the packets to byte array
@@ -126,7 +144,10 @@ def main():
                     server_duration = stop_time - start_time
                     connectionSocket.send('ACK: BYE'.encode())          #server sends ACK to client
                     break         
-            show_results(len(data), server_duration, addr[0], addr[1], interval) 
+            
+            results = generate_table()
+            generate_row(len(data), server_duration, addr[0], addr[1], duration, results) 
+            display_results(results)
             break
         connectionSocket.close()              
             #thread.start_new_thread(handleClient,(connectionSocket,))       #start new thread and return its identifier
@@ -142,26 +163,47 @@ def main():
             sys.exit()
         clientSocket = socket(AF_INET, SOCK_STREAM)        #prepare a TCP (SOCK_STREAM) client socket using IPv4 (AF_INET)
         clientSocket.connect((args.bind,args.port))          #connect client socket to specified server ip/port and initiate three-way handshake
-        print_msg(f'Client connected with server {args.serverip}, port {args.port}')                  #client info printed to screen server side        
-        interval = args.time
-        clientSocket.send(str(interval).encode('utf-8'))
+        print(f'Client connected with server {args.serverip}, port {args.port}')                  #client info printed to screen server side        
 
         while True:
+            #results = []
             chunk = bytes(1000) 
             bytes_sent = bytearray()
-            start_time = time.time()                        #set timer to start now
+            duration = args.time
+            clientSocket.send(str(duration).encode('utf-8'))
+            start_time = time.time()  
             clientSocket.send(str(start_time).encode('utf-8'))     #send start time to server
-            send_time = start_time + args.time              #send data for time specified with -t flag
-            while time.time() < send_time:                  #for the specified length of time:
-                clientSocket.send(chunk)           #send a chunk of data
-                bytes_sent.extend(chunk)
+            send_time = start_time + duration              #send data for time specified with -t flag
+            results = generate_table()
+            if args.interval:
+                interval = args.interval
+                number_intervals = int(duration/interval)
+                
+                for i in range(number_intervals):
+                    while (time.time() < (start_time + interval)) and (time.time() < send_time):                  #for the specified length of time:
+                        clientSocket.send(chunk)           #send a chunk of data
+                        bytes_sent.extend(chunk)
+                    print(f'interval finished - number of bytes sent: {len(bytes_sent)}')    
+                    stop_time = time.time()                     #stop timer when ACK recvd
+                    client_duration = stop_time - start_time
+                    generate_row(len(bytes_sent), client_duration, args.serverip, args.port, duration, results)
+                    start_time = time.time()
+                    bytes_sent = bytearray()      
+                #break               
+            else:                                 
+                while time.time() < send_time:                  #for the specified length of time:
+                    clientSocket.send(chunk)           #send a chunk of data
+                    bytes_sent.extend(chunk)
+                    stop_time = time.time()                     #stop timer when ACK recvd
+                    client_duration = stop_time - start_time
+                    #generate_row(len(bytes_sent), client_duration, args.serverip, args.port, duration, results)
             print(f'finished - number of bytes sent: {len(bytes_sent)}')     #CAN DELETE AFTER: print number bytes sent
             clientSocket.send('BYE'.encode())           #finished sending data - send BYE message to server
-            print(clientSocket.recv(64).decode())       #recv ACK from server
-            stop_time = time.time()                     #stop timer when ACK recvd
-            client_duration = stop_time - start_time
+            clientSocket.recv(64).decode()       #recv ACK from server
+            generate_row(len(bytes_sent), client_duration, args.serverip, args.port, duration, results)
             break
-        show_results(len(bytes_sent), client_duration, args.serverip, args.port, interval) 
+        
+        display_results(results)
         clientSocket.close()                               #close client socket 
         sys.exit()
 
