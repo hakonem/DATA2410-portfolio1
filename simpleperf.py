@@ -84,7 +84,7 @@ def display_row(row):
  
 
 def get_bytes_to_send(num):
-    num_split = re.split('\d+', num)
+    num_split = re.split('(\d+)', num)
     if num_split[2] == 'MB':
         return(int(num_split[1])*int(1e6))
     elif num_split[2] == 'KB':
@@ -92,16 +92,7 @@ def get_bytes_to_send(num):
     else:
         return(int(num_split[1]))
     
-"""
-def get_client_start_time(info):
-    info_split = info.split()
-    return info_split[0]
-  
-def get_client_interval(info):
-    info_split = info.split()
-    return info_split[1]
 
-"""
 
 
 #MAIN FUNCTION
@@ -138,6 +129,10 @@ def main():
                 print('Error: Data conversion failed')
                 sys.exit()
 
+            if b'NUM' in connectionSocket.recv(64):
+                args.num = True
+                
+
             while connectionSocket:                         #while the client is connected
                 packet = connectionSocket.recv(1000)        #recv packets of data from client
                 data.extend(packet)                         #add the data in the packets to byte array
@@ -150,7 +145,10 @@ def main():
                     break         
             
             results = generate_table()
-            generate_row(len(data), server_duration, addr[0], addr[1], 0, duration, results) 
+            if args.num:
+                generate_row(len(data), server_duration, addr[0], addr[1], 0, server_duration, results)
+            else:
+                generate_row(len(data), server_duration, addr[0], addr[1], 0, duration, results) 
             display_results(results)
             break
         connectionSocket.close()              
@@ -199,14 +197,26 @@ def main():
                     display_row(new_row)
                     start_time = time.time()
                     bytes_sent = bytearray()
-                    
                 #print(f'finished - total number of bytes sent: {len(bytes_sent)}')     #CAN DELETE AFTER: print number bytes sent
                 clientSocket.send('BYE'.encode())           #finished sending data - send BYE message to server
                 clientSocket.recv(64).decode()       #recv ACK from server
                 generate_row(len(bytes_sent), client_duration, args.serverip, args.port, 0, duration, results)
                
                                     
-            else:                                 
+            elif args.num:
+                clientSocket.send('NUM'.encode()) 
+                while len(bytes_sent) < get_bytes_to_send(args.num):
+                    clientSocket.send(chunk)
+                    bytes_sent.extend(chunk)
+                stop_time = time.time()
+                client_duration = stop_time - start_time
+                print(f'finished - total number of bytes sent: {len(bytes_sent)}')     #CAN DELETE AFTER: print number bytes sent
+                clientSocket.send('BYE'.encode())           #finished sending data - send BYE message to server
+                clientSocket.recv(64).decode()       #recv ACK from server
+                generate_row(len(bytes_sent), client_duration, args.serverip, args.port, 0, client_duration, results)
+                display_results(results)
+            
+            else:
                 while time.time() < send_time:                  #for the specified length of time:
                     clientSocket.send(chunk)           #send a chunk of data
                     bytes_sent.extend(chunk)
@@ -218,6 +228,8 @@ def main():
                 clientSocket.recv(64).decode()       #recv ACK from server
                 generate_row(len(bytes_sent), client_duration, args.serverip, args.port, 0, duration, results)
                 display_results(results)
+
+            
 
             clientSocket.close()                               #close client socket 
             sys.exit()
