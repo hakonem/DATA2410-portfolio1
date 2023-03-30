@@ -40,6 +40,7 @@ def print_msg(msg):
     print('-'*len(msg))
     print(msg)
     print('-'*len(msg))
+    
 def generate_table():
     if args.server:
         return [
@@ -99,7 +100,7 @@ def main():
 
     #ERROR HANDLING IF NEITHER/BOTH MODES SELECTED
     if (not args.client and not args.server) or (args.client and args.server):
-        sys.exit('Error: Simpleperf must run EITHER in server or client mode')
+        sys.exit('Error: you must run either in server or client mode')
     
     #SERVER MODE
     elif args.server:
@@ -122,7 +123,12 @@ def main():
             data = bytearray()                                      #initialise an empty byte array
             #recv value in -t from client
             duration_from_client = (connectionSocket.recv(8).decode('utf-8')).split('E')[0]
+            #print(duration_from_client)
             start_time_from_client = (connectionSocket.recv(32).decode('utf-8')).split('E')[0] #recv start time from client
+            print(len(start_time_from_client))
+            if len(start_time_from_client) < 18:
+                raise error('Conversion failed. Error: ')
+                sys.exit()
              
             duration = int(duration_from_client)
             start_time = float(start_time_from_client)
@@ -139,7 +145,7 @@ def main():
                 
                 if b'BYE' in packet:                        #when the server recvs BYE message from client:
                     stop_time = time.time()                     #stop timer when BYE recvd
-                    print(f'client finished: number of bytes recd: {len(data)-3}')    #CAN DELETE AFTER: print number bytes recvd
+                    print(f'client finished: number of bytes recd: {len(data)}')    #CAN DELETE AFTER: print number bytes recvd
                     server_duration = stop_time - start_time
                     connectionSocket.send('ACK: BYE'.encode())          #server sends ACK to client
                     break         
@@ -149,9 +155,16 @@ def main():
             
             if num:
                 generate_row(len(data), server_duration, addr[0], addr[1], 0, server_duration, results)
+                print(f'stop time: {stop_time}')
+                print(start_time)
+                print(f'time taken {server_duration}')
+                print(f'rate {len(data)/server_duration*8e-6}')
             else:
                 generate_row(len(data), server_duration, addr[0], addr[1], 0, duration, results) 
-            
+                print(f'stop time: {stop_time}')
+                print(start_time)
+                print(f'time taken {server_duration}')
+                print(f'rate {len(data)/server_duration*8e-6}')
             display_results(results)
             break
         connectionSocket.close()              
@@ -174,12 +187,15 @@ def main():
         clientSocket.connect((args.bind,args.port))          #connect client socket to specified server ip/port and initiate three-way handshake
         print(f'Client connected with server {args.serverip}, port {args.port}')                  #client info printed to screen server side        
 
+        duration = args.time            #total time of transfer
+        clientSocket.send(f'{duration}END'.encode('utf-8'))
+        
         while True:
             chunk = bytes(1000) 
             bytes_sent = bytearray()
-            duration = args.time            #total time of transfer
-            clientSocket.send(f'{duration}END'.encode('utf-8'))
+            
             start_time = time.time()  
+            print(start_time)
             clientSocket.send(f'{start_time}END'.encode('utf-8'))     #send start time to server
             send_time = start_time + duration              #send data for time specified with -t flag
             results = generate_table()
