@@ -215,19 +215,19 @@ def main():
                 display_results(results)
 
             elif args.interval:
-                interval = args.interval            #no of intervals
-                interval_length = int(duration/interval)       #total time / no of interval = length of interval
+                interval = args.interval            #length of interval
+                interval_number = int(duration/interval)       #total time / length of interval = no of intervals
                 total_bytes_sent = 0
                 total_time_taken = 0
                 display_results(results)
-                for i in range(interval):
-                    while time.time() < start_time + interval_length and time.time() < send_time:                  #for the specified length of time:
+                for i in range(interval_number):
+                    while time.time() < start_time + interval and time.time() < send_time:                  #for the specified length of time:
                         clientSocket.send(chunk)           #send a chunk of data
                         bytes_sent.extend(chunk)  
                     #print(f'interval finished - number of bytes sent: {len(bytes_sent)}')  
                     checkpoint = time.time()                     
                     client_duration = checkpoint - start_time
-                    new_row = generate_row(len(bytes_sent), client_duration, args.serverip, args.port, i*interval_length, (i+1)*interval_length, results)
+                    new_row = generate_row(len(bytes_sent), client_duration, args.serverip, args.port, i*interval, (i+1)*interval, results)
                     display_row(new_row)
                     total_bytes_sent += len(bytes_sent)
                     total_time_taken += client_duration
