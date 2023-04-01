@@ -178,7 +178,7 @@ def main():
         except:
             print('Bind failed. Error: ')                       #Print error message and terminate program if socket binding fails 
             sys.exit()
-        serverSocket.listen(args.parallel)                      #Listen for incoming connection requests to socket (specified number)
+        serverSocket.listen(5)                                  #Listen for incoming connection requests to socket (max 5)
         print_msg(f'A simpleperf server is listening on port {args.port}')    #Print message when socket ready to receive
    
         
@@ -191,10 +191,10 @@ def main():
             duration_from_client = (connectionSocket.recv(8).decode('utf-8')).split('E')[0]     
             start_time_from_client = (connectionSocket.recv(32).decode('utf-8')).split('E')[0] 
             #EXCEPTION HANDLING
-            #Start time is sometimes truncated during encode/decode (missing the first few digits)
-            #Test this in if block:
+            #Start time is sometimes truncated during encode/decode (missing the first few digits), so subsequent calculations fail.
+            #Test length of start time in if block:
             if len(start_time_from_client) < 17:                #Complete time value should be at least 17 digits
-                print('Conversion failed. Error: ')             #Print error message and terminate program if start time not received in full
+                print('Error: Something went wrong during decoding')#Print error message and terminate program if start time not received in full
                 sys.exit()
             duration = int(duration_from_client)                #Convert duration string to int
             start_time = float(start_time_from_client)          #Convert start time string to float
