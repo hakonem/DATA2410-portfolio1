@@ -150,16 +150,6 @@ def get_bytes_to_send(num):
         return(int(num_split[1]))
 
 
-#FUNCTION: A way of indicating to the server that the client is using the -n flag
-#ARGUMENTS: None
-#If the client is using -n, we want the duration displayed to be the same as client side; otherwise the duration displayed should be -t.
-#If args.num is True client side, the client sends a 'NUM' message to the client, which sets a boolean value for num server side. Depending on the
-#value of num, the server will display its results using one of the durations described here.
-def num_chosen():
-    if args.num:
-        return True
-
-
 #MAIN FUNCTION
 def main():
 
@@ -194,7 +184,7 @@ def main():
             #Start time is sometimes truncated during encode/decode (missing the first few digits), so subsequent calculations fail.
             #Test length of start time in if block:
             if len(start_time_from_client) < 17:                #Complete time value should be at least 17 digits
-                print('Error: Something went wrong during decoding')#Print error message and terminate program if start time not received in full
+                print('Error: Something went wrong during decoding')    #Print error message and terminate program if start time not received in full
                 sys.exit()
             duration = int(duration_from_client)                #Convert duration string to int
             start_time = float(start_time_from_client)          #Convert start time string to float
@@ -226,8 +216,6 @@ def main():
             display_results(results)                            #Print complete table
             break
         connectionSocket.close()                                #Close connection socket
-            #thread.start_new_thread(handleClient,(connectionSocket,))       #start new thread and return its identifier
-            #print('new thread started')
         serverSocket.close()                                    #Close server socket
         sys.exit()                                              #Terminate the program 
 
