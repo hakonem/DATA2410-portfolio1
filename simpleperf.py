@@ -4,6 +4,7 @@ The tool must run in server and client modes to allow data packets to be sent fr
 The tool tracks the amount of data sent/received and calculates the rate of transmission from client/to server.
 The results are then printed in a table on each side.
 A number of optional arguments are available in each mode to customize the output.
+NB: The parallel argument -P has not been implemented.
 """
 
 #Import libraries required for the program to work
@@ -26,7 +27,7 @@ parser.add_argument('-c', '--client', help='Runs tool in client mode', action='s
 parser.add_argument('-I', '--serverip', help='Takes the server IP address in decimal notation format, value must match -b', type=str, default='127.0.0.1')
 parser.add_argument('-t', '--time', help='Total duration in seconds for which data should be generated and sent', type=int, default=25)
 parser.add_argument('-i', '--interval', help='Prints statistics per <value> seconds', type=int)
-parser.add_argument('-P', '--parallel', help='Specifies number of parallel connections to open', type=int, default=1)
+#parser.add_argument('-P', '--parallel', help='Specifies number of parallel connections to open', type=int, default=1)  #Not implemented
 parser.add_argument('-n', '--num', help='Specifies fixed number of bytes to transfer, cannot be used in conjunction with -t', type=str) 
 
 #Run the parser
@@ -99,13 +100,12 @@ def generate_table():
 def generate_row(bytes, duration, ip, port, start, stop, table):
     if args.format == 'MB':
         X = bytes/1e6
-        Y = (bytes/duration)*8e-6
     elif args.format == 'KB':
         X = bytes/1e3
-        Y = (bytes/duration)*8e-6
     else:
         X = bytes
-        Y = (bytes/duration)*8e-6
+    
+    Y = (bytes/duration)*8e-6
 
     if args.interval:
         return [f'{ip}:{port}', f'{start:.1f} - {stop:.1f}', f'{round(X)} {args.format}', f'{Y:.2f} Mbps']
