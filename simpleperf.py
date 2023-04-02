@@ -224,14 +224,15 @@ def main():
         #EXCEPTION HANDLING
         #Print error message if client tries to connect to a different IP address than the servers
         if args.serverip != args.bind:
-            raise ValueError('IP address given must match server IP address')
+            print('IP address given must match server IP address')
+            sys.exit()
         #Print error message if duration is less than 0
         if args.time <= 0:
             raise ValueError('Total duration in seconds must be greater than 0')
 
         clientSocket = socket(AF_INET, SOCK_STREAM)             #Prepare a TCP (SOCK_STREAM) client socket using IPv4 (AF_INET)
-        clientSocket.connect((args.bind,args.port))             #Connect client socket to specified server IP/port and initiate three-way handshake
-        print(f'Client connected with server {args.serverip}, port {args.port}')        #Print message when client successfully connected      
+        clientSocket.connect((args.serverip,args.port))             #Connect client socket to specified server IP/port and initiate three-way handshake
+        print(f'Client connected with server {args.serverip}, port {args.port}')    #Print message when client successfully connected      
         duration = args.time                                    #Total time of transfer
         clientSocket.send(f'{duration}END'.encode('utf-8'))     #Send -t to server
         
