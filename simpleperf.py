@@ -183,7 +183,7 @@ def main():
             #EXCEPTION HANDLING
             #Start time is sometimes truncated during encode/decode (missing the first few digits), so subsequent calculations fail.
             #Test length of start time in if block:
-            if len(start_time_from_client) < 17:                #Complete time value should be at least 17 digits
+            if len(start_time_from_client) < 17:                #Complete epoch time value should be at least 17 digits
                 print('Error: Something went wrong during decoding')    #Print error message and terminate program if start time not received in full
                 sys.exit()
             duration = int(duration_from_client)                #Convert duration string to int
@@ -198,15 +198,14 @@ def main():
             while connectionSocket:                             
                 packet = connectionSocket.recv(1000)            #Receive packets of data from client
                 data.extend(packet)                             #Add packets to byte array (length of array gives number of bytes received)
-                
+                results = generate_table()                          #Create empty table ready to hold data rows
+
                 #When the server recvs BYE message from client:
                 if b'BYE' in packet:                            
                     stop_time = time.time()                     #Stop timer when BYE received
                     server_duration = stop_time - start_time    #Calculate server duration
                     connectionSocket.send('ACK: BYE'.encode())  #Server sends ACK to client
                     break         
-            
-            results = generate_table()                          #Create empty table ready to hold data rows
             
             #If client has selected -n (and sent message to server):
             if num:
@@ -244,7 +243,7 @@ def main():
             send_time = start_time + duration                   #Record time that sending should stop 
             results = generate_table()                          #Create empty table ready to hold data rows
             
-            #If -n selected:
+            #If -n selected (send given number of bytes):
             if args.num:
                 clientSocket.send('NUM'.encode())               #Send message to server
                 #Until desired number of bytes reached:
@@ -252,13 +251,13 @@ def main():
                     clientSocket.send(chunk)                    #Send packet
                     bytes_sent.extend(chunk)                    #Add packets to byte array (length of array gives number of bytes sent)
                 clientSocket.send('BYE'.encode())               #Finished sending data - send BYE message to server
-                clientSocket.recv(64).decode()                  #Receive ACK from server
-                stop_time = time.time()                         #Record stop time when desired number of bytes sent
+                if b'ACK' in clientSocket.recv(8):              #When ACK received from server:
+                    stop_time = time.time()                     #Record stop time 
                 client_duration = stop_time - start_time        #Calculate client duration        
                 generate_row(len(bytes_sent), client_duration, args.serverip, args.port, 0, client_duration, results)   #Display stats with actual client duration
                 display_results(results)                        #Print complete table
 
-            #If -i selected:
+            #If -i selected (print stats every z seconds):
             elif args.interval:
                 interval = args.interval                        #Length of interval
                 interval_number = int(duration/interval)        #Total time / length of interval = no of intervals
@@ -276,27 +275,29 @@ def main():
                     #Create a row for the interval and save to new_row variable
                     new_row = generate_row(len(bytes_sent), client_duration, args.serverip, args.port, i*interval, (i+1)*interval, results)
                     display_row(new_row)                        #Print the new row in the existing table
-                    total_bytes_sent += len(bytes_sent)         #Update counter with number of bytes sent during interval (for total)
-                    total_time_taken += client_duration         #Update counter with time taken during interval (for total row)
+                    total_bytes_sent += len(bytes_sent)         #Update counter with number of bytes sent during interval (to calculate total)
+                    total_time_taken += client_duration         #Update counter with time taken during interval (to calculate total)
                     start_time = time.time()                    #Reset start time for next interval
                     bytes_sent = bytearray()                    #Reset byte array for next interval
                 clientSocket.send('BYE'.encode())               #Finished sending data - send BYE message to server
-                clientSocket.recv(64).decode()                  #Receive ACK from server
+                if b'ACK' in clientSocket.recv(8):              #When ACK received from server:
+                    stop_time = time.time()                     #Record stop time at end of total duration
+                delay = stop_time - start_time                  #Time between final interval finishing and receiving ack from server
                 #Calculate totals for each column and save to total variable
-                total = generate_row(total_bytes_sent, total_time_taken, args.serverip, args.port, 0, duration, results) 
+                total = generate_row(total_bytes_sent, total_time_taken + delay, args.serverip, args.port, 0, duration, results) 
                 print('\n' + '-'*85 + '\n')                     #Print dashed line underneath intervals
                 display_row(total)                              #Print totals at bottom of table
 
             #If -n or -i not selected:   
             else:
-                #For the specified length of time:
+                #For the specified length of time (25s if -t not set explicitly):
                 while time.time() < send_time:                  
                     clientSocket.send(chunk)                    #Send packets
                     bytes_sent.extend(chunk)                    #Add packets to byte array (length of array gives number of bytes sent)
-                stop_time = time.time()                         #Stop timer when ACK recvd
-                client_duration = stop_time - start_time        #Calculate client duration 
                 clientSocket.send('BYE'.encode())               #Finished sending data - send BYE message to server
-                clientSocket.recv(64).decode()                  #Receive ACK from server
+                if b'ACK' in clientSocket.recv(8):              #When ACK received from server:
+                    stop_time = time.time()                         #Stop timer when ACK recvd
+                client_duration = stop_time - start_time        #Calculate client duration 
                 generate_row(len(bytes_sent), client_duration, args.serverip, args.port, 0, duration, results)  #Display stats with -t as duration
                 display_results(results)                        #Print complete table
             break
