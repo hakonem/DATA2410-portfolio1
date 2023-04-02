@@ -189,7 +189,7 @@ def main():
             duration = int(duration_from_client)                #Convert duration string to int
             start_time = float(start_time_from_client)          #Convert start time string to float
             
-            if b'NUM' in connectionSocket.recv(3):              
+            if b'NUM' in connectionSocket.recv(8):              
                 num = True                                      #Set num to True if client sends message 
             else:
                 num = False
@@ -245,7 +245,7 @@ def main():
             
             #If -n selected (send given number of bytes):
             if args.num:
-                clientSocket.send('NUM'.encode())               #Send message to server
+                clientSocket.send('NUM'.encode('utf-8'))        #Send message to server
                 #Until desired number of bytes reached:
                 while len(bytes_sent) < get_bytes_to_send(args.num):
                     clientSocket.send(chunk)                    #Send packet
