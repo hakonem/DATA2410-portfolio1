@@ -27,7 +27,7 @@ parser.add_argument('-c', '--client', help='Runs tool in client mode', action='s
 parser.add_argument('-I', '--serverip', help='Takes the server IP address in decimal notation format, value must match -b', type=str, default='127.0.0.1')
 parser.add_argument('-t', '--time', help='Total duration in seconds for which data should be generated and sent', type=int, default=25)
 parser.add_argument('-i', '--interval', help='Prints statistics per <value> seconds', type=int)
-#parser.add_argument('-P', '--parallel', help='Specifies number of parallel connections to open', type=int, default=1)  #Not implemented
+parser.add_argument('-P', '--parallel', help='Specifies number of parallel connections to open', type=int, default=1)  #Not implemented
 parser.add_argument('-n', '--num', help='Specifies fixed number of bytes to transfer, cannot be used in conjunction with -t', type=str) 
 
 #Run the parser
@@ -150,6 +150,51 @@ def get_bytes_to_send(num):
         return(int(num_split[1]))
 
 
+def connHandler(connectionSocket,addr):
+    while True:
+        data = bytearray()                                  #Initialise an empty byte array to keep track of number of bytes received
+        #Client sends duration (-t) and start time to server as strings
+        duration_from_client = connectionSocket.recv(1).decode('utf-8')
+        while len(duration_from_client) < 3:
+            rest_dur = connectionSocket.recv(1).decode('utf-8')
+            duration_from_client += rest_dur
+            if '\n' in rest_dur:
+                break
+        start_time_from_client = connectionSocket.recv(16).decode('utf-8')
+        while len(start_time_from_client) < 17:
+            rest_time = connectionSocket.recv(1).decode('utf-8')
+            start_time_from_client = start_time_from_client + rest_time
+            if '\n' in rest_time:
+                break 
+        duration = int(duration_from_client)                #Convert duration string to int
+        start_time = float(start_time_from_client)          #Convert start time string to float
+                
+        if b'NUM' in connectionSocket.recv(8):              
+            num = True                                      #Set num to True if client sends message 
+        else:
+            num = False
+
+        #While the client is connected:
+        while connectionSocket:                             
+            packet = connectionSocket.recv(1000)            #Receive packets of data from client
+            data.extend(packet)                             #Add packets to byte array (length of array gives number of bytes received)
+            results = generate_table()                          #Create empty table ready to hold data rows
+            #When the server recvs BYE message from client:
+            if b'BYE' in packet:                            
+                stop_time = time.time()                     #Stop timer when BYE received
+                server_duration = stop_time - start_time    #Calculate server duration
+                connectionSocket.send('ACK: BYE'.encode())  #Server sends ACK to client
+                break  
+        #If client has selected -n (and sent message to server):
+        if num:
+            generate_row(len(data), server_duration, addr[0], addr[1], 0, server_duration, results)     #Display stats with actual server duration
+        else:   
+            generate_row(len(data), server_duration, addr[0], addr[1], 0, duration, results)            #Otherwise display -t duration
+        display_results(results)                            #Print complete table
+            
+        connectionSocket.close()                                #Close connection socket
+        sys.exit()                                              #Terminate the program 
+
 #MAIN FUNCTION
 def main():
 
@@ -170,79 +215,32 @@ def main():
             sys.exit()
         serverSocket.listen(5)                                  #Listen for incoming connection requests to socket (max 5)
         print_msg(f'A simpleperf server is listening on port {args.port}')    #Print message when socket ready to receive
-   
-        
         while True:
             connectionSocket,addr = serverSocket.accept()       #Accept connection request from client and create new connection socket with info about the client (addr)
             print(f'A simpleperf client with {addr[0]}:{addr[1]} is connected with {args.bind}:{args.port}')     #Print confirmation of client connection
-            data = bytearray()                                  #Initialise an empty byte array to keep track of number of bytes received
-            #Client sends duration (-t) and start time to server as strings
-            #The strings are split on first letter of 'END' delimiter and the first parts are saved in new variables:
-            duration_from_client = (connectionSocket.recv(8).decode('utf-8')).split('E')[0]     
-            start_time_from_client = (connectionSocket.recv(32).decode('utf-8')).split('E')[0] 
-            #EXCEPTION HANDLING
-            #Start time is sometimes truncated during encode/decode (missing the first few digits), so subsequent calculations fail.
-            #Test length of start time in if block:
-            if len(start_time_from_client) < 17:                #Complete epoch time value should be at least 17 digits
-                print('Error: Something went wrong during decoding')    #Print error message and terminate program if start time not received in full
-                sys.exit()
-            duration = int(duration_from_client)                #Convert duration string to int
-            start_time = float(start_time_from_client)          #Convert start time string to float
-            
-            if b'NUM' in connectionSocket.recv(8):              
-                num = True                                      #Set num to True if client sends message 
-            else:
-                num = False
-
-            #While the client is connected:
-            while connectionSocket:                             
-                packet = connectionSocket.recv(1000)            #Receive packets of data from client
-                data.extend(packet)                             #Add packets to byte array (length of array gives number of bytes received)
-                results = generate_table()                          #Create empty table ready to hold data rows
-
-                #When the server recvs BYE message from client:
-                if b'BYE' in packet:                            
-                    stop_time = time.time()                     #Stop timer when BYE received
-                    server_duration = stop_time - start_time    #Calculate server duration
-                    connectionSocket.send('ACK: BYE'.encode())  #Server sends ACK to client
-                    break         
-            
-            #If client has selected -n (and sent message to server):
-            if num:
-                generate_row(len(data), server_duration, addr[0], addr[1], 0, server_duration, results)     #Display stats with actual server duration
-            else:   
-                generate_row(len(data), server_duration, addr[0], addr[1], 0, duration, results)            #Otherwise display -t duration
-            display_results(results)                            #Print complete table
-            break
-        connectionSocket.close()                                #Close connection socket
-        serverSocket.close()                                    #Close server socket
-        sys.exit()                                              #Terminate the program 
-
+            thread.start_new_thread(connHandler, (connectionSocket,addr))
+        serverSocket.close()   
+      
     #CLIENT MODE
     else:
         print_msg(f'A simpleperf client connecting to server {args.serverip}, port {args.port}')    #Print message when client request sent
         #EXCEPTION HANDLING
-        #Print error message if client tries to connect to a different IP address than the servers
-        if args.serverip != args.bind:
-            print('IP address given must match server IP address')
-            sys.exit()
         #Print error message if duration is less than 0
         if args.time <= 0:
             raise ValueError('Total duration in seconds must be greater than 0')
-
-        clientSocket = socket(AF_INET, SOCK_STREAM)             #Prepare a TCP (SOCK_STREAM) client socket using IPv4 (AF_INET)
-        clientSocket.connect((args.serverip,args.port))             #Connect client socket to specified server IP/port and initiate three-way handshake
-        print(f'Client connected with server {args.serverip}, port {args.port}')    #Print message when client successfully connected      
-        duration = args.time                                    #Total time of transfer
-        clientSocket.send(f'{duration}END'.encode('utf-8'))     #Send -t to server
-        
+        chunk = bytes(1000)                                 #Packet of 1000 bytes
+        bytes_sent = bytearray()                            #Initialize an empty byte array to keep track of number of bytes sent
+        results = generate_table()                          #Create empty table ready to hold data rows
+        for p in range(args.parallel):
+            clientSocket = socket(AF_INET, SOCK_STREAM)             #Prepare a TCP (SOCK_STREAM) client socket using IPv4 (AF_INET)
+            clientSocket.connect((args.serverip,args.port))             #Connect client socket to specified server IP/port and initiate three-way handshake
+            print(f'Client {clientSocket.getsockname()} connected with server {args.serverip}, port {args.port}')    #Print message when client successfully connected      
+            duration = args.time                                    #Total time of transfe
+            clientSocket.send(f'{duration}\n'.encode('utf-8'))     #Send -t to server
         while True:
-            chunk = bytes(1000)                                 #Packet of 1000 bytes
-            bytes_sent = bytearray()                            #Initialize an empty byte array to keep track of number of bytes sent
             start_time = time.time()                            #Record time that sending starts
-            clientSocket.send(f'{start_time}END'.encode('utf-8'))   #Send start time to server
+            clientSocket.sendall(f'{start_time}\n'.encode('utf-8'))   #Send start time to server
             send_time = start_time + duration                   #Record time that sending should stop 
-            results = generate_table()                          #Create empty table ready to hold data rows
             
             #If -n selected (send given number of bytes):
             if args.num:
