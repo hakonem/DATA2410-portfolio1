@@ -151,21 +151,17 @@ def get_bytes_to_send(num):
         return(int(num_split[1]))
 
 
-def check_decode(connectionSocket, var, length, buffer):
-    while len(var) < length:
-        buffer = connectionSocket.recv(1).decode('utf-8')
-        var += buffer
-        if '\n' in buffer:
-            break
+
 
 def send_data(clientSocket):
     chunk = bytes(1000)                                 #Packet of 1000 byte
     results = generate_table()                          #Create empty table ready to hold data rows
     duration = args.time                                    #Total time of transfe
-    clientSocket.sendall(f'{duration}\n'.encode('utf-8'))     #Send -t to server
+    formatted_duration = '{:0>3}'.format(duration)
+    clientSocket.sendall(formatted_duration.encode('utf-8'))     #Send -t to server
     bytes_sent = bytearray()                            #Initialize an empty byte array to keep track of number of bytes sent
     start_time = time.time()                            #Record time that sending starts
-    clientSocket.sendall(f'{start_time}\n'.encode('utf-8'))   #Send start time to server
+    clientSocket.sendall(f'{start_time:7f}'.encode('utf-8').ljust(18,b'\0'))   #Send start time to server
     send_time = start_time + duration                   #Record time that sending should stop 
     
     #If -n selected (send given number of bytes):
@@ -231,20 +227,16 @@ def send_data(clientSocket):
 def connHandler(connectionSocket,addr):
     data = bytearray()
     #Client sends duration (-t) and start time to server as strings
-    duration_from_client = connectionSocket.recv(2).decode('utf-8')
-    rest_dur = ''
-    check_decode(connectionSocket, duration_from_client, 3, rest_dur)
-    rest_time = ''
-    start_time_from_client = connectionSocket.recv(16).decode('utf-8')
-    check_decode(connectionSocket, start_time_from_client, 18, rest_time)
-    duration = int(duration_from_client)                #Convert duration string to int
-    start_time = float(start_time_from_client)          #Convert start time string to float
-  
+    duration_from_client = connectionSocket.recv(3)
+    duration = int(duration_from_client.decode('utf-8'))           #Convert duration string to int
+    start_time_from_client = connectionSocket.recv(16)          #Convert start time string to float
+    start_time = float(start_time_from_client.decode('utf-8').strip('\0'))
     
-    if b'NUM' in connectionSocket.recv(8):              
+    if b'NUM' in connectionSocket.recv(16):              
         num = True                                      #Set num to True if client sends message 
     else:
         num = False
+    print(num)
     results = generate_table()                          #Create empty table ready to hold data rows
     
     #While the client is connected:
@@ -258,13 +250,13 @@ def connHandler(connectionSocket,addr):
             connectionSocket.send('ACK: BYE'.encode())  #Server sends ACK to client
             break  
        
-    #If client has selected -n (and sent message to server):
+        #If client has selected -n (and sent message to server):
     if num:
         generate_row(len(data), server_duration, addr[0], addr[1], 0, server_duration, results)     #Display stats with actual server duration
     else:   
         generate_row(len(data), server_duration, addr[0], addr[1], 0, duration, results)            #Otherwise display -t duration
     display_results(results)                            #Print complete table
-    connectionSocket.close()                                #Close connection socket
+    
     
 
 #MAIN FUNCTION
@@ -289,6 +281,7 @@ def main():
             connectionSocket,addr = serverSocket.accept()       #Accept connection request from client and create new connection socket with info about the client (addr)
             print(f'A simpleperf client with {addr[0]}:{addr[1]} is connected with {args.bind}:{args.port}')     #Print confirmation of client connection
             thread.start_new_thread(connHandler, (connectionSocket,addr))
+        connectionSocket.close()                                #Close connection socket
         serverSocket.close()  
     #then run client
     else:
